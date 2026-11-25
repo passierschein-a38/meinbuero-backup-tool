@@ -1,0 +1,12 @@
+# never commit backups or extracted business data
+*.mfb
+*.bak
+*.fdb
+*.sqlite
+*.csv
+*.xlsx
+*_extracted/
+out/
+ausgabe/
+__pycache__/
+.DS_Store

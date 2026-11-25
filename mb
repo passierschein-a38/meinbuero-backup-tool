@@ -1,0 +1,54 @@
+#!/bin/bash
+# Wrapper around the meinbuero-backup Docker image.
+#
+#   ./mb build                         build the image
+#   ./mb info  <backup.mfb>            show what is inside
+#   ./mb all   <backup.mfb> [outdir]   unpack, restore databases, export SQLite + CSV
+#   ./mb serve <outdir> [port]         browse the exported data at http://localhost:8001
+#   ./mb sql   <outdir> [mandant]      Firebird SQL shell (default mandant 1)
+#   ./mb query <outdir> <file.sql> [mandant] [--csv-intl]
+#                                      run a query on the exported data, CSV on stdout
+set -euo pipefail
+
+IMAGE=meinbuero-backup
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+abspath() { (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd)" "$(basename "$1")"); }
+ensure_image() { docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -t "$IMAGE" "$HERE"; }
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+cmd="${1:-}"; [ -n "$cmd" ] || usage; shift
+
+case "$cmd" in
+  build)
+    docker build -t "$IMAGE" "$HERE" ;;
+  info)
+    [ $# -ge 1 ] || usage
+    ensure_image
+    docker run --rm -v "$(abspath "$1"):/in/backup.mfb:ro" "$IMAGE" info ;;
+  all)
+    [ $# -ge 1 ] || usage
+    ensure_image
+    mfb="$(abspath "$1")"
+    out="${2:-${mfb%.*}_extracted}"
+    mkdir -p "$out"; out="$(abspath "$out")"
+    shift; [ $# -ge 1 ] && shift
+    docker run --rm -v "$mfb:/in/backup.mfb:ro" -v "$out:/out" "$IMAGE" all "$@"
+    echo "Output folder: $out" ;;
+  serve)
+    [ $# -ge 1 ] || usage
+    ensure_image
+    port="${2:-8001}"
+    docker run --rm -it -p "127.0.0.1:$port:8001" -v "$(abspath "$1"):/out:ro" "$IMAGE" serve ;;
+  sql)
+    [ $# -ge 1 ] || usage
+    ensure_image
+    docker run --rm -it -v "$(abspath "$1"):/out:ro" "$IMAGE" sql "${2:-1}" ;;
+  query)
+    [ $# -ge 2 ] || usage
+    ensure_image
+    out="$(abspath "$1")"; sqlfile="$2"; shift 2
+    docker run --rm -i -v "$out:/out:ro" "$IMAGE" query "$@" < "$sqlfile" ;;
+  *)
+    usage ;;
+esac
